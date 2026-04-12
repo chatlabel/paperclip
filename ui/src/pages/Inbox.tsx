@@ -149,6 +149,47 @@ type InboxGroupedSection = {
   isArchivedSearch: boolean;
 };
 
+export function InboxGroupHeader({
+  label,
+  collapsible = false,
+  collapsed = false,
+  onToggle,
+}: {
+  label: string;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
+  if (collapsible) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 text-left"
+        aria-expanded={!collapsed}
+        onClick={onToggle}
+      >
+        <ChevronRight
+          className={cn("h-3.5 w-3.5 shrink-0 transition-transform", !collapsed && "rotate-90")}
+        />
+        <span className="max-w-[75vw] truncate rounded-full border border-border/70 bg-background/80 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          {label}
+        </span>
+        <span className="h-px flex-1 bg-border/80" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="h-px flex-1 bg-border/80" />
+      <span className="max-w-[75vw] truncate rounded-full border border-border/70 bg-background/80 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground sm:max-w-none">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-border/80" />
+    </div>
+  );
+}
+
 function buildGroupedInboxSections(
   items: InboxWorkItem[],
   groupBy: InboxWorkItemGroupBy,
@@ -1101,6 +1142,15 @@ export function Inbox() {
     });
   }, []);
   const [collapsedInboxParents, setCollapsedInboxParents] = useState<Set<string>>(new Set());
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(new Set());
+  const toggleGroupCollapse = useCallback((groupKey: string) => {
+    setCollapsedGroupKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  }, []);
   const groupedSections = useMemo<InboxGroupedSection[]>(() => [
     ...buildGroupedInboxSections(effectiveWorkItems, groupBy, nestingEnabled, inboxWorkspaceGrouping),
     ...buildGroupedInboxSections(
@@ -2063,6 +2113,8 @@ export function Inbox() {
                 let previousTimestamp = Number.POSITIVE_INFINITY;
                 return groupedSections.flatMap((group, groupIndex) => {
                   const elements: ReactNode[] = [];
+                  const mobileWorkspaceGrouping = isMobile && groupBy === "workspace";
+                  const isGroupCollapsed = mobileWorkspaceGrouping && collapsedGroupKeys.has(group.key);
                   if (group.isArchivedSearch && (groupIndex === 0 || !groupedSections[groupIndex - 1]?.isArchivedSearch)) {
                     elements.push(
                       <div
@@ -2086,16 +2138,16 @@ export function Inbox() {
                           groupIndex > 0 && "border-t border-border",
                         )}
                       >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <div className="h-px flex-1 bg-border/80" />
-                          <span className="max-w-[75vw] truncate rounded-full border border-border/70 bg-background/80 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground sm:max-w-none">
-                            {group.label}
-                          </span>
-                          <div className="h-px flex-1 bg-border/80" />
-                        </div>
+                        <InboxGroupHeader
+                          label={group.label}
+                          collapsible={mobileWorkspaceGrouping}
+                          collapsed={isGroupCollapsed}
+                          onToggle={mobileWorkspaceGrouping ? () => toggleGroupCollapse(group.key) : undefined}
+                        />
                       </div>,
                     );
                   }
+                  if (isGroupCollapsed) return elements;
 
                   for (let index = 0; index < group.displayItems.length; index += 1) {
                     const item = group.displayItems[index]!;
