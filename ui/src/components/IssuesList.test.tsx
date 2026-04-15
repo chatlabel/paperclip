@@ -391,6 +391,36 @@ describe("IssuesList", () => {
     });
   });
 
+  it("caps the first paint for large issue lists", async () => {
+    const manyIssues = Array.from({ length: 220 }, (_, index) =>
+      createIssue({
+        id: `issue-${index + 1}`,
+        identifier: `PAP-${index + 1}`,
+        title: `Issue ${index + 1}`,
+      }),
+    );
+
+    const { root } = renderWithQueryClient(
+      <IssuesList
+        issues={manyIssues}
+        agents={[]}
+        projects={[]}
+        viewStateKey="paperclip:test-issues"
+        onUpdateIssue={() => undefined}
+      />,
+      container,
+    );
+
+    await waitForAssertion(() => {
+      expect(container.querySelectorAll('[data-testid="issue-row"]')).toHaveLength(150);
+      expect(container.textContent).toContain("Rendering 150 of 220 issues...");
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("uses context-scoped persisted column visibility", async () => {
     localStorage.setItem("paperclip:test-issues:company-1:issue-columns", JSON.stringify(["id", "assignee"]));
 
