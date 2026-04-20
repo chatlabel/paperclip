@@ -161,8 +161,14 @@ function makeAttachment(contentType: string, originalFilename: string) {
 describe("issue attachment routes", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock("@paperclipai/shared/telemetry");
+    vi.doUnmock("../telemetry.js");
+    vi.doUnmock("../services/index.js");
+    vi.doUnmock("../routes/issues.js");
+    vi.doUnmock("../routes/authz.js");
+    vi.doUnmock("../middleware/index.js");
     registerRouteMocks();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mockLogActivity.mockResolvedValue(undefined);
   });
 

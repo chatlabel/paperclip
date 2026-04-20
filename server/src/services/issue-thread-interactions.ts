@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -66,7 +67,7 @@ function isEquivalentCreateRequest(
     && (row.summary ?? null) === (input.summary ?? null)
     && (row.createdByAgentId ?? null) === (actor.agentId ?? null)
     && (row.createdByUserId ?? null) === (actor.userId ?? null)
-    && JSON.stringify(row.payload) === JSON.stringify(input.payload)
+    && isDeepStrictEqual(row.payload, input.payload)
   );
 }
 

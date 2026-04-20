@@ -112,6 +112,10 @@ function readyPlugin() {
 
 describe("plugin install and upgrade authz", () => {
   beforeEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../routes/plugins.js");
+    vi.doUnmock("../routes/authz.js");
+    vi.doUnmock("../middleware/index.js");
     vi.resetAllMocks();
   });
 
@@ -253,6 +257,10 @@ describe("plugin install and upgrade authz", () => {
 
 describe("scoped plugin API routes", () => {
   beforeEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../routes/plugins.js");
+    vi.doUnmock("../routes/authz.js");
+    vi.doUnmock("../middleware/index.js");
     vi.resetAllMocks();
   });
 
@@ -319,6 +327,10 @@ describe("scoped plugin API routes", () => {
 
 describe("plugin tool and bridge authz", () => {
   beforeEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../routes/plugins.js");
+    vi.doUnmock("../routes/authz.js");
+    vi.doUnmock("../middleware/index.js");
     vi.resetAllMocks();
   });
 

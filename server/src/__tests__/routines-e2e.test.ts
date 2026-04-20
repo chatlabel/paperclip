@@ -135,12 +135,13 @@ describeEmbeddedPostgres("routine routes end-to-end", () => {
     vi.doUnmock("../routes/authz.js");
     vi.doUnmock("../middleware/index.js");
     registerRoutineServiceMock();
+    vi.resetAllMocks();
   });
 
   async function createApp(actor: Record<string, unknown>) {
     const [{ routineRoutes }, { errorHandler }] = await Promise.all([
-      vi.importActual<typeof import("../routes/routines.js")>("../routes/routines.js"),
-      vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
+      import("../routes/routines.js"),
+      import("../middleware/index.js"),
     ]);
     const app = express();
     app.use(express.json());

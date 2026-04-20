@@ -46,8 +46,8 @@ function registerModuleMocks() {
 
 async function createApp() {
   const [{ agentRoutes }, { errorHandler }] = await Promise.all([
-    vi.importActual<typeof import("../routes/agents.js")>("../routes/agents.js"),
-    vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
+    import("../routes/agents.js"),
+    import("../middleware/index.js"),
   ]);
   const app = express();
   app.use(express.json());

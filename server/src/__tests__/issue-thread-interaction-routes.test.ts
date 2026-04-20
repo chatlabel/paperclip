@@ -76,6 +76,52 @@ vi.mock("../services/index.js", () => ({
   workProductService: () => ({}),
 }));
 
+function registerModuleMocks() {
+  vi.doMock("../services/index.js", () => ({
+    accessService: () => ({
+      canUser: vi.fn(async () => true),
+      hasPermission: vi.fn(async () => true),
+    }),
+    agentService: () => ({
+      getById: vi.fn(async () => null),
+      resolveByReference: vi.fn(async (_companyId: string, raw: string) => ({
+        ambiguous: false,
+        agent: { id: raw },
+      })),
+    }),
+    clampIssueListLimit: (value: number) => value,
+    ISSUE_LIST_DEFAULT_LIMIT: 500,
+    ISSUE_LIST_MAX_LIMIT: 1000,
+    documentService: () => ({}),
+    executionWorkspaceService: () => ({}),
+    feedbackService: () => ({
+      listIssueVotesForUser: vi.fn(async () => []),
+      saveIssueVote: vi.fn(async () => ({ vote: null, consentEnabledNow: false, sharingEnabled: false })),
+    }),
+    goalService: () => ({}),
+    heartbeatService: () => mockHeartbeatService,
+    instanceSettingsService: () => ({
+      get: vi.fn(async () => ({
+        id: "instance-settings-1",
+        general: {
+          censorUsernameInLogs: false,
+          feedbackDataSharingPreference: "prompt",
+        },
+      })),
+      listCompanyIds: vi.fn(async () => ["company-1"]),
+    }),
+    issueApprovalService: () => ({}),
+    issueService: () => mockIssueService,
+    issueThreadInteractionService: () => mockInteractionService,
+    logActivity: mockLogActivity,
+    projectService: () => ({}),
+    routineService: () => ({
+      syncRunStatusForIssue: vi.fn(async () => undefined),
+    }),
+    workProductService: () => ({}),
+  }));
+}
+
 function createIssue(overrides: Record<string, unknown> = {}) {
   return {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -122,6 +168,11 @@ async function createApp(actor: Record<string, unknown> = {
 describe("issue thread interaction routes", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock("../routes/issues.js");
+    vi.doUnmock("../routes/authz.js");
+    vi.doUnmock("../middleware/index.js");
+    vi.doUnmock("../services/index.js");
+    registerModuleMocks();
     vi.resetAllMocks();
     mockIssueService.getById.mockResolvedValue(createIssue());
     mockInteractionService.listForIssue.mockResolvedValue([]);
