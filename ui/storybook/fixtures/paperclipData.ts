@@ -1258,6 +1258,22 @@ export const storybookDashboardSummary: DashboardSummary = {
     pausedAgents: 0,
     pausedProjects: 1,
   },
+  runActivity: [
+    { date: "2026-04-07", succeeded: 4, failed: 0, other: 1, total: 5 },
+    { date: "2026-04-08", succeeded: 5, failed: 1, other: 0, total: 6 },
+    { date: "2026-04-09", succeeded: 3, failed: 0, other: 1, total: 4 },
+    { date: "2026-04-10", succeeded: 6, failed: 0, other: 0, total: 6 },
+    { date: "2026-04-11", succeeded: 4, failed: 1, other: 0, total: 5 },
+    { date: "2026-04-12", succeeded: 2, failed: 0, other: 1, total: 3 },
+    { date: "2026-04-13", succeeded: 5, failed: 0, other: 1, total: 6 },
+    { date: "2026-04-14", succeeded: 6, failed: 1, other: 0, total: 7 },
+    { date: "2026-04-15", succeeded: 4, failed: 0, other: 1, total: 5 },
+    { date: "2026-04-16", succeeded: 7, failed: 0, other: 0, total: 7 },
+    { date: "2026-04-17", succeeded: 6, failed: 1, other: 0, total: 7 },
+    { date: "2026-04-18", succeeded: 3, failed: 0, other: 1, total: 4 },
+    { date: "2026-04-19", succeeded: 5, failed: 0, other: 1, total: 6 },
+    { date: "2026-04-20", succeeded: 4, failed: 0, other: 2, total: 6 },
+  ],
 };
 
 export const storybookLiveRuns: LiveRunForIssue[] = [
