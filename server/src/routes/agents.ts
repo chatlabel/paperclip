@@ -2130,11 +2130,16 @@ export function agentRoutes(db: Db) {
       return;
     }
 
-    const agent = await svc.activatePendingApproval(id);
-    if (!agent) {
+    const approval = await svc.activatePendingApproval(id);
+    if (!approval) {
       res.status(404).json({ error: "Agent not found" });
       return;
     }
+    if (!approval.activated) {
+      res.status(409).json({ error: "Only pending approval agents can be approved" });
+      return;
+    }
+    const { agent } = approval;
 
     await logActivity(db, {
       companyId: agent.companyId,

@@ -1151,7 +1151,8 @@ export async function runChildProcess(
 
         child.stdout?.on("data", (chunk: unknown) => {
           const readable = child.stdout;
-          readable?.pause();
+          if (!readable) return;
+          readable.pause();
           const text = String(chunk);
           stdout = appendWithCap(stdout, text);
           logChain = logChain
@@ -1162,7 +1163,8 @@ export async function runChildProcess(
 
         child.stderr?.on("data", (chunk: unknown) => {
           const readable = child.stderr;
-          readable?.pause();
+          if (!readable) return;
+          readable.pause();
           const text = String(chunk);
           stderr = appendWithCap(stderr, text);
           logChain = logChain
