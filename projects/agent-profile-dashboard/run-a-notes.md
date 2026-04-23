@@ -191,3 +191,46 @@ Neutral. No new tokens, no new components, no new raw-palette classes. The chang
 
 - Right zone is now visually sparse (budget card only, ~140px tall). The chart band in Phase 3b may naturally fill space below the right zone; not a current-phase concern.
 - If the smoke test finds the pill still looks lonely despite proximity grounding, a minimal alternative is to swap `space-y-3` to `space-y-2` (tighter) — one-line change. No escalation to borders or backgrounds unless that fails first.
+
+---
+
+## Phase 3b — Chart consolidation
+
+### Decisions
+
+- **Four charts → one.** Dropped `PriorityChart`, `IssueStatusChart`, and `SuccessRateChart` from the dashboard composition. Kept `RunActivityChart` as the single surviving chart; it's the only uniquely-dashboard-shaped temporal signal. The three dropped charts all duplicated data that lives elsewhere:
+  - Issues by Priority → reachable via `/issues?participantAgentId=<id>` + priority filter (1 interaction via the existing "View all →" link on the in-flight tasks list).
+  - Issues by Status → same path, status filter.
+  - Success Rate → merged into the Run Activity subtitle as a caption (concept §2).
+  - *Lens — Information Scent:* each dropped chart had a clear, single-click scent path to its canonical home. Removing them from the dashboard doesn't hide data, it surfaces the right chart by removing competing ones.
+  - *Lens — Hick's Law / Choice Overload:* four adjacent charts imply four questions for the user to triage. One chart states one question clearly.
+  - *Lens — Pareto (80/20):* run activity is the 20% that does the 80% of the work for monitoring-and-debug users; the other three charts fail that ratio.
+
+- **Success Rate rendered as subtitle.** Format: `N% success · Last 14 days` when there are runs in the window; plain `Last 14 days` when there are none. Computed inline in `AgentOverview` from the `runs` array with a cutoff at `now - 14 days`.
+  - *Formula:* `succeeded / total` (same as the dropped `SuccessRateChart`) — matches the stacked bars the user reads visually above the subtitle. Using `succeeded / (succeeded + failed)` would give a different number than the visual proportion suggests.
+  - *Lens — Aesthetic-Usability Effect + Prägnanz:* caption is the simplest representation that carries the signal. A line overlay would reintroduce the competing-axes problem that the consolidation was supposed to solve.
+  - *Lens — Recognition over Recall:* subtitle sits right next to the chart title in the existing `ChartCard` slot — users already look there for chart metadata.
+
+- **Layout collapses from `grid-cols-4` to a single full-width `ChartCard`.** No wrapping grid needed; `ChartCard` is already a block-level `border border-border rounded-none p-4` container that spans the parent's width.
+
+### DS deviations
+
+None. Chart colors remain hardcoded hex inside `RunActivityChart` (no chart tokenization, per Step 0 policy). `ChartCard` reused as-is — no new wrapper, no new subtitle pattern invented.
+
+### Reachability check for dropped chart data
+
+- **Issues by Priority / Issues by Status:** the in-flight tasks list's "View all →" link (`/issues?participantAgentId=${agentId}`) routes to the Issues page. Priority and status filters on that page give the equivalent view. Two interactions max: click "View all," click the filter. Rubric Section 4 "chart data reachable within two interactions" — passes.
+- **Success Rate:** visible as subtitle on the surviving chart card (zero interactions).
+
+### 1440px no-scroll
+
+Hero unchanged from Phase 3a polish round 3 — still passes. Chart band below the hero *shrinks* from 4-up at ~160–200px to a single card at similar height (the chart itself is the constraint, not the grid). Net: content below the fold is shorter and reads cleaner, which helps overall page rhythm.
+
+### Imports cleaned
+
+`PriorityChart`, `IssueStatusChart`, `SuccessRateChart` removed from `AgentDetail.tsx` imports — the components are still exported from `ActivityCharts.tsx` because `pages/Dashboard.tsx` (the company-level dashboard, different surface) still uses them. Scope-respecting: did not touch `Dashboard.tsx` or delete the unused-here components.
+
+### Residual items for Phase 3c / 3d / 4
+
+- **Carried forward:** the right edge of the Latest Run card doesn't currently align with the right edge of the content grid. Filed as a Phase 4 polish candidate; not addressed in 3b.
+- **Possible follow-up for 3d (Costs):** with the chart band now small, the Costs module below the in-flight tasks has more room. May influence Phase 3d layout decisions.

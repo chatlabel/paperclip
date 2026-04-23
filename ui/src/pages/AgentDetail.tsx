@@ -12,7 +12,7 @@ import { budgetsApi } from "../api/budgets";
 import { heartbeatsApi } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { ApiError } from "../api/client";
-import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
+import { ChartCard, RunActivityChart } from "../components/ActivityCharts";
 import { activityApi } from "../api/activity";
 import { issuesApi } from "../api/issues";
 import { usePanel } from "../context/PanelContext";
@@ -1314,6 +1314,16 @@ function AgentOverview({
     return days === 1 ? "resets tomorrow" : `resets in ${days} days`;
   }, [budgetSummary?.policyId, budgetSummary?.windowEnd]);
 
+  // Success rate is succeeded / total (not succeeded / (succeeded + failed)) to match the stacked bars visually.
+  const runActivitySubtitle = useMemo(() => {
+    const cutoffMs = Date.now() - 14 * 86_400_000;
+    const recent = runs.filter((r) => new Date(r.createdAt).getTime() >= cutoffMs);
+    if (recent.length === 0) return "Last 14 days";
+    const succeeded = recent.filter((r) => r.status === "succeeded").length;
+    const pct = Math.round((succeeded / recent.length) * 100);
+    return `${pct}% success · Last 14 days`;
+  }, [runs]);
+
   return (
     <div className="space-y-8">
       {/* Hero: activity pill (agent-level) above a 75/25 grid */}
@@ -1409,21 +1419,10 @@ function AgentOverview({
         </div>
       </div>
 
-      {/* Activity over time (chart band — Phase 3b will consolidate to one merged chart) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <ChartCard title="Run Activity" subtitle="Last 14 days">
-          <RunActivityChart runs={runs} />
-        </ChartCard>
-        <ChartCard title="Issues by Priority" subtitle="Last 14 days">
-          <PriorityChart issues={assignedIssues} />
-        </ChartCard>
-        <ChartCard title="Issues by Status" subtitle="Last 14 days">
-          <IssueStatusChart issues={assignedIssues} />
-        </ChartCard>
-        <ChartCard title="Success Rate" subtitle="Last 14 days">
-          <SuccessRateChart runs={runs} />
-        </ChartCard>
-      </div>
+      {/* Run activity — single merged chart. Issues-by-Priority and Issues-by-Status are reachable via the /issues filter views. */}
+      <ChartCard title="Run Activity" subtitle={runActivitySubtitle}>
+        <RunActivityChart runs={runs} />
+      </ChartCard>
 
       {/* In-flight tasks — filter: status ∈ {todo, in_progress, blocked}; sort: priority DESC, updatedAt DESC; limit 7 */}
       <div className="space-y-3">
