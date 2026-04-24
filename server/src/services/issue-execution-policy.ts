@@ -304,6 +304,9 @@ export function applyIssueExecutionPolicyTransition(input: TransitionInput): Tra
   const currentStage = input.policy ? findStageById(input.policy, existingState?.currentStageId) : null;
   const requestedStatus = input.requestedStatus;
   const activeStage = currentStage && existingState?.status === PENDING_STATUS ? currentStage : null;
+  const effectiveReviewRequest = input.reviewRequest === undefined
+    ? existingState?.reviewRequest ?? null
+    : input.reviewRequest;
 
   if (!input.policy) {
     if (existingState) {
@@ -368,7 +371,7 @@ export function applyIssueExecutionPolicyTransition(input: TransitionInput): Tra
         stage: activeStage,
         participant,
         returnAssignee: existingState?.returnAssignee ?? currentAssignee ?? actor,
-        reviewRequest: input.reviewRequest ?? existingState?.reviewRequest ?? null,
+        reviewRequest: effectiveReviewRequest,
       });
       return {
         patch,
@@ -472,7 +475,7 @@ export function applyIssueExecutionPolicyTransition(input: TransitionInput): Tra
         stage: activeStage,
         participant: currentParticipant,
         returnAssignee: existingState?.returnAssignee ?? currentAssignee ?? actor,
-        reviewRequest: input.reviewRequest ?? existingState?.reviewRequest ?? null,
+        reviewRequest: effectiveReviewRequest,
       });
       return {
         patch,

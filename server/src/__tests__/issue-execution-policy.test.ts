@@ -203,6 +203,43 @@ describe("issue execution policy transitions", () => {
       });
     });
 
+    it("clears loose review instructions with explicit null during a stage transition", () => {
+      const reviewStageId = policy.stages[0].id;
+      const result = applyIssueExecutionPolicyTransition({
+        issue: {
+          status: "in_progress",
+          assigneeAgentId: coderAgentId,
+          assigneeUserId: null,
+          executionPolicy: policy,
+          executionState: {
+            status: "pending",
+            currentStageId: reviewStageId,
+            currentStageIndex: 0,
+            currentStageType: "review",
+            currentParticipant: { type: "agent", agentId: qaAgentId },
+            returnAssignee: { type: "agent", agentId: coderAgentId },
+            reviewRequest: { instructions: "Old review request" },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        },
+        policy,
+        requestedStatus: "in_review",
+        requestedAssigneePatch: {},
+        actor: { agentId: coderAgentId },
+        commentBody: "Ready for review",
+        reviewRequest: null,
+      });
+
+      expect(result.patch.executionState).toMatchObject({
+        status: "pending",
+        currentStageType: "review",
+        currentParticipant: { type: "agent", agentId: qaAgentId },
+        reviewRequest: null,
+      });
+    });
+
     it("reviewer approves → advances to approval stage", () => {
       const reviewStageId = policy.stages[0].id;
       const result = applyIssueExecutionPolicyTransition({

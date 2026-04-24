@@ -1398,27 +1398,22 @@ export function issueService(db: Db) {
         )
       `;
       if (filters?.descendantOf) {
-        const descendantIds: string[] = [];
-        const seen = new Set<string>([filters.descendantOf]);
-        let frontier = [filters.descendantOf];
-
-        while (frontier.length > 0) {
-          const children = await db
-            .select({ id: issues.id })
-            .from(issues)
-            .where(and(eq(issues.companyId, companyId), inArray(issues.parentId, frontier)));
-
-          frontier = [];
-          for (const child of children) {
-            if (seen.has(child.id)) continue;
-            seen.add(child.id);
-            descendantIds.push(child.id);
-            frontier.push(child.id);
-          }
-        }
-
-        if (descendantIds.length === 0) return [];
-        conditions.push(inArray(issues.id, descendantIds));
+        conditions.push(sql<boolean>`
+          ${issues.id} IN (
+            WITH RECURSIVE descendants(id) AS (
+              SELECT ${issues.id}
+              FROM ${issues}
+              WHERE ${issues.companyId} = ${companyId}
+                AND ${issues.parentId} = ${filters.descendantOf}
+              UNION
+              SELECT ${issues.id}
+              FROM ${issues}
+              JOIN descendants ON ${issues.parentId} = descendants.id
+              WHERE ${issues.companyId} = ${companyId}
+            )
+            SELECT id FROM descendants
+          )
+        `);
       }
       if (filters?.status) {
         const statuses = filters.status.split(",").map((s) => s.trim());

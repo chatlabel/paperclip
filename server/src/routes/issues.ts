@@ -1892,7 +1892,7 @@ export function issueRoutes(
         userId: actor.actorType === "user" ? actor.actorId : null,
       },
       commentBody,
-      reviewRequest: reviewRequest ?? undefined,
+      reviewRequest: reviewRequest === undefined ? undefined : reviewRequest,
     });
     const decisionId = transition.decision ? randomUUID() : null;
     if (decisionId) {
