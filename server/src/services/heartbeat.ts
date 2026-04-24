@@ -5617,8 +5617,14 @@ export function heartbeatService(db: Db) {
           };
         }
         const deferredCommentIds = extractWakeCommentIds(deferredContextSeed);
+        const deferredWakeReason = readNonEmptyString(deferredContextSeed.wakeReason);
         const shouldReopenDeferredCommentWake =
-          deferredCommentIds.length > 0 && (issue.status === "done" || issue.status === "cancelled");
+          deferredCommentIds.length > 0 &&
+          (issue.status === "done" || issue.status === "cancelled") &&
+          (
+            deferred.requestedByActorType === "user" ||
+            deferredWakeReason === "issue_reopened_via_comment"
+          );
         let reopenedActivity: LogActivityInput | null = null;
 
         if (shouldReopenDeferredCommentWake) {
