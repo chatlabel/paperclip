@@ -9,6 +9,7 @@ const mockIssueService = vi.hoisted(() => ({
   findMentionedProjectIds: vi.fn(),
   getCommentCursor: vi.fn(),
   getComment: vi.fn(),
+  listBlockerAttention: vi.fn(),
   listAttachments: vi.fn(),
 }));
 
@@ -160,6 +161,7 @@ describe("issue goal context routes", () => {
       latestCommentAt: null,
     });
     mockIssueService.getComment.mockResolvedValue(null);
+    mockIssueService.listBlockerAttention.mockResolvedValue(new Map());
     mockIssueService.listAttachments.mockResolvedValue([]);
     mockDocumentsService.getIssueDocumentPayload.mockResolvedValue({});
     mockDocumentsService.getIssueDocumentByKey.mockResolvedValue(null);
