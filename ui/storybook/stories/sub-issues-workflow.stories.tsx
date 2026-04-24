@@ -44,7 +44,7 @@ const blockerRef = (issue: Issue): BlockerRef => ({
 
 const baseCreatedAt = new Date("2026-04-10T12:00:00.000Z").getTime();
 const createdAt = (offsetMinutes: number) =>
-  new Date(baseCreatedAt + offsetMinutes * 60_000).toISOString();
+  new Date(baseCreatedAt + offsetMinutes * 60_000);
 
 // Mirrors the PAP-1953 topology called out in the PAP-2189 plan:
 //   1954 Scoping (done)                — root

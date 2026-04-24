@@ -489,7 +489,7 @@ describe("IssuesList", () => {
       expect(rows.filter((row) => row.getAttribute("data-current-step") === "true")).toHaveLength(1);
       expect(rows.find((row) => row.textContent?.includes("Active blocker"))?.getAttribute("data-current-step")).toBe("true");
       expect(rows.find((row) => row.textContent?.includes("Done first"))?.getAttribute("data-title-class")).toContain("text-muted-foreground");
-      expect(container.textContent).toContain("blocked by PAP-3 · step 1");
+      expect(container.textContent).toContain("blocked by PAP-3 · step 2");
     });
 
     act(() => {
