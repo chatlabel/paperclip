@@ -64,6 +64,7 @@ import { InlineEditor } from "../components/InlineEditor";
 import { IssueChatThread, type IssueChatComposerHandle } from "../components/IssueChatThread";
 import { IssueContinuationHandoff } from "../components/IssueContinuationHandoff";
 import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
+import type { MarkdownExternalReferenceMap } from "../components/MarkdownBody";
 import { IssuesList } from "../components/IssuesList";
 import { AgentIcon } from "../components/AgentIconPicker";
 import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
@@ -593,6 +594,7 @@ type IssueDetailChatTabProps = {
     interaction: IssueThreadInteraction,
     answers: AskUserQuestionsAnswer[],
   ) => Promise<void>;
+  externalReferences?: MarkdownExternalReferenceMap;
 };
 
 const IssueDetailChatTab = memo(function IssueDetailChatTab({
@@ -635,6 +637,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   onAcceptInteraction,
   onRejectInteraction,
   onSubmitInteractionAnswers,
+  externalReferences,
 }: IssueDetailChatTabProps) {
   const { data: activity } = useQuery({
     queryKey: queryKeys.issues.activity(issueId),
@@ -831,6 +834,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
             }
           : undefined}
         onImageClick={onImageClick}
+        externalReferences={externalReferences}
       />
     </div>
   );
@@ -848,6 +852,7 @@ type IssueDetailActivityTabProps = {
   pendingApprovalAction: { approvalId: string; action: "approve" | "reject" } | null;
   onApprovalAction: (approvalId: string, action: "approve" | "reject") => void;
   handoffFocusSignal?: number;
+  externalReferences?: MarkdownExternalReferenceMap;
 };
 
 function IssueDetailActivityTab({
@@ -862,6 +867,7 @@ function IssueDetailActivityTab({
   pendingApprovalAction,
   onApprovalAction,
   handoffFocusSignal = 0,
+  externalReferences,
 }: IssueDetailActivityTabProps) {
   const { data: activity, isLoading: activityLoading } = useQuery({
     queryKey: queryKeys.issues.activity(issueId),
@@ -951,7 +957,11 @@ function IssueDetailActivityTab({
           hasLiveRuns={hasLiveRuns}
         />
       </div>
-      <IssueContinuationHandoff document={continuationHandoff} focusSignal={handoffFocusSignal} />
+      <IssueContinuationHandoff
+        document={continuationHandoff}
+        focusSignal={handoffFocusSignal}
+        externalReferences={externalReferences}
+      />
       {linkedApprovals && linkedApprovals.length > 0 && (
         <div className="mb-3 space-y-3">
           {linkedApprovals.map((approval) => (
@@ -3191,6 +3201,7 @@ export function IssueDetail() {
         feedbackDataSharingPreference={feedbackDataSharingPreference}
         feedbackTermsUrl={FEEDBACK_TERMS_URL}
         mentions={mentionOptions}
+        externalReferences={externalObjectsState.markdownReferences}
         imageUploadHandler={async (file) => {
           const attachment = await uploadAttachment.mutateAsync(file);
           return attachment.contentPath;
@@ -3418,6 +3429,7 @@ export function IssueDetail() {
               onAcceptInteraction={handleAcceptInteraction}
               onRejectInteraction={handleRejectInteraction}
               onSubmitInteractionAnswers={handleSubmitInteractionAnswers}
+              externalReferences={externalObjectsState.markdownReferences}
             />
           ) : null}
         </TabsContent>
@@ -3438,6 +3450,7 @@ export function IssueDetail() {
               onApprovalAction={(approvalId, action) => {
                 approvalDecision.mutate({ approvalId, action });
               }}
+              externalReferences={externalObjectsState.markdownReferences}
             />
           ) : null}
         </TabsContent>

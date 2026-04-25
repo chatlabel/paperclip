@@ -17,7 +17,7 @@ import { deriveDocumentRevisionState } from "../lib/document-revisions";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
 import { FoldCurtain } from "./FoldCurtain";
-import { MarkdownBody } from "./MarkdownBody";
+import { MarkdownBody, type MarkdownExternalReferenceMap } from "./MarkdownBody";
 import { MarkdownEditor, type MentionOption } from "./MarkdownEditor";
 import { OutputFeedbackButtons } from "./OutputFeedbackButtons";
 import { Button } from "@/components/ui/button";
@@ -71,10 +71,16 @@ function saveFoldedDocumentKeys(issueId: string, keys: string[]) {
   window.localStorage.setItem(getFoldedDocumentsStorageKey(issueId), JSON.stringify(keys));
 }
 
-function renderFoldableBody(body: string, className?: string) {
+function renderFoldableBody(
+  body: string,
+  className?: string,
+  externalReferences?: MarkdownExternalReferenceMap,
+) {
   return (
     <FoldCurtain>
-      <MarkdownBody className={className} softBreaks={false}>{body}</MarkdownBody>
+      <MarkdownBody className={className} softBreaks={false} externalReferences={externalReferences}>
+        {body}
+      </MarkdownBody>
     </FoldCurtain>
   );
 }
@@ -143,6 +149,7 @@ export function IssueDocumentsSection({
   imageUploadHandler,
   onVote,
   extraActions,
+  externalReferences,
 }: {
   issue: Issue;
   canDeleteDocuments: boolean;
@@ -157,6 +164,7 @@ export function IssueDocumentsSection({
     options?: { allowSharing?: boolean; reason?: string },
   ) => Promise<void>;
   extraActions?: ReactNode;
+  externalReferences?: MarkdownExternalReferenceMap;
 }) {
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -785,7 +793,7 @@ export function IssueDocumentsSection({
             </span>
           </div>
           <div className={documentBodyPaddingClassName}>
-            {renderFoldableBody(issue.legacyPlanDocument.body, documentBodyContentClassName)}
+            {renderFoldableBody(issue.legacyPlanDocument.body, documentBodyContentClassName, externalReferences)}
           </div>
         </div>
       ) : null}
@@ -1072,7 +1080,7 @@ export function IssueDocumentsSection({
                           {!isPlanKey(doc.key) && activeConflict.serverDocument.title ? (
                             <p className="mb-2 text-sm font-medium">{activeConflict.serverDocument.title}</p>
                           ) : null}
-                          {renderFoldableBody(activeConflict.serverDocument.body, "text-[14px] leading-7")}
+                          {renderFoldableBody(activeConflict.serverDocument.body, "text-[14px] leading-7", externalReferences)}
                         </div>
                       )}
                     </div>
@@ -1094,7 +1102,7 @@ export function IssueDocumentsSection({
                   >
                     {isHistoricalPreview ? (
                       <div className="rounded-md border border-amber-500/20 bg-background/50 p-3">
-                        {renderFoldableBody(displayedBody, documentBodyContentClassName)}
+                        {renderFoldableBody(displayedBody, documentBodyContentClassName, externalReferences)}
                       </div>
                     ) : activeDraft ? (
                       <MarkdownEditor
@@ -1118,7 +1126,7 @@ export function IssueDocumentsSection({
                       />
                     ) : (
                       <div className="rounded-md border border-border/60 bg-background/40 p-3">
-                        {renderFoldableBody(displayedBody, documentBodyContentClassName)}
+                        {renderFoldableBody(displayedBody, documentBodyContentClassName, externalReferences)}
                       </div>
                     )}
                   </div>

@@ -74,7 +74,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MarkdownBody } from "./MarkdownBody";
+import { MarkdownBody, type MarkdownExternalReferenceMap } from "./MarkdownBody";
 import { MarkdownEditor, type MentionOption, type MarkdownEditorRef } from "./MarkdownEditor";
 import { Identity } from "./Identity";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
@@ -138,6 +138,7 @@ interface IssueChatMessageContext {
     interaction: AskUserQuestionsInteraction,
     answers: AskUserQuestionsAnswer[],
   ) => Promise<void> | void;
+  externalReferences?: MarkdownExternalReferenceMap;
 }
 
 const IssueChatCtx = createContext<IssueChatMessageContext>({
@@ -296,6 +297,7 @@ interface IssueChatThreadProps {
     answers: AskUserQuestionsAnswer[],
   ) => Promise<void> | void;
   composerRef?: Ref<IssueChatComposerHandle>;
+  externalReferences?: MarkdownExternalReferenceMap;
 }
 
 type IssueChatErrorBoundaryProps = {
@@ -303,6 +305,7 @@ type IssueChatErrorBoundaryProps = {
   messages: readonly ThreadMessage[];
   emptyMessage: string;
   variant: "full" | "embedded";
+  externalReferences?: MarkdownExternalReferenceMap;
   children: ReactNode;
 };
 
@@ -337,6 +340,7 @@ class IssueChatErrorBoundary extends Component<IssueChatErrorBoundaryProps, Issu
           messages={this.props.messages}
           emptyMessage={this.props.emptyMessage}
           variant={this.props.variant}
+          externalReferences={this.props.externalReferences}
         />
       );
     }
@@ -461,10 +465,12 @@ function IssueChatFallbackThread({
   messages,
   emptyMessage,
   variant,
+  externalReferences,
 }: {
   messages: readonly ThreadMessage[];
   emptyMessage: string;
   variant: "full" | "embedded";
+  externalReferences?: MarkdownExternalReferenceMap;
 }) {
   return (
     <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
@@ -505,7 +511,9 @@ function IssueChatFallbackThread({
                 </div>
                 <div className="space-y-2">
                   {lines.length > 0 ? lines.map((line, index) => (
-                    <MarkdownBody key={`${message.id}:fallback:${index}`}>{line}</MarkdownBody>
+                    <MarkdownBody key={`${message.id}:fallback:${index}`} externalReferences={externalReferences}>
+                      {line}
+                    </MarkdownBody>
                   )) : (
                     <p className="text-sm text-muted-foreground">No message content.</p>
                   )}
@@ -607,13 +615,14 @@ function commentDateLabel(date: Date | string | undefined): string {
 }
 
 function IssueChatTextPart({ text, recessed }: { text: string; recessed?: boolean }) {
-  const { onImageClick } = useContext(IssueChatCtx);
+  const { onImageClick, externalReferences } = useContext(IssueChatCtx);
   return (
     <MarkdownBody
       className="text-sm leading-6"
       style={recessed ? { opacity: 0.55 } : undefined}
       softBreaks
       onImageClick={onImageClick}
+      externalReferences={externalReferences}
     >
       {text}
     </MarkdownBody>
@@ -1816,6 +1825,7 @@ function ExpiredRequestConfirmationActivity({
     userLabelMap,
     onAcceptInteraction,
     onRejectInteraction,
+    externalReferences,
   } = useContext(IssueChatCtx);
   const [expanded, setExpanded] = useState(false);
   const hasResolvedActor = Boolean(interaction.resolvedByAgentId || interaction.resolvedByUserId);
@@ -1894,6 +1904,7 @@ function ExpiredRequestConfirmationActivity({
             userLabelMap={userLabelMap}
             onAcceptInteraction={onAcceptInteraction}
             onRejectInteraction={onRejectInteraction}
+            externalReferences={externalReferences}
           />
         </div>
       ) : null}
@@ -1909,6 +1920,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
     onAcceptInteraction,
     onRejectInteraction,
     onSubmitInteractionAnswers,
+    externalReferences,
   } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
@@ -1954,6 +1966,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
             onAcceptInteraction={onAcceptInteraction}
             onRejectInteraction={onRejectInteraction}
             onSubmitInteractionAnswers={onSubmitInteractionAnswers}
+            externalReferences={externalReferences}
           />
         </div>
       </div>
@@ -2549,6 +2562,7 @@ export function IssueChatThread({
   onRejectInteraction,
   onSubmitInteractionAnswers,
   composerRef,
+  externalReferences,
 }: IssueChatThreadProps) {
   const location = useLocation();
   const hasScrolledRef = useRef(false);
@@ -2782,6 +2796,7 @@ export function IssueChatThread({
       onAcceptInteraction,
       onRejectInteraction,
       onSubmitInteractionAnswers,
+      externalReferences,
     }),
     [
       feedbackVoteByTargetId,
@@ -2802,6 +2817,7 @@ export function IssueChatThread({
       onAcceptInteraction,
       onRejectInteraction,
       onSubmitInteractionAnswers,
+      externalReferences,
     ],
   );
 
@@ -2836,6 +2852,7 @@ export function IssueChatThread({
           messages={messages}
           emptyMessage={resolvedEmptyMessage}
           variant={variant}
+          externalReferences={externalReferences}
         >
           <div data-testid="thread-root">
             <div
