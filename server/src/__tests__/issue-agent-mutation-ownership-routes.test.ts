@@ -56,6 +56,34 @@ const mockIssueThreadInteractionService = vi.hoisted(() => ({
   expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
   expireStaleRequestConfirmationsForIssueDocument: vi.fn(async () => []),
 }));
+const mockExternalObjectService = vi.hoisted(() => ({
+  getIssueSummaries: vi.fn(async () => new Map()),
+  getIssueSummary: vi.fn(async () => ({
+    authRequiredCount: 0,
+    byLiveness: {},
+    byStatusCategory: {},
+    highestSeverity: "muted",
+    objects: [],
+    staleCount: 0,
+    total: 0,
+    unreachableCount: 0,
+  })),
+  getProjectSummary: vi.fn(async () => ({
+    authRequiredCount: 0,
+    byLiveness: {},
+    byStatusCategory: {},
+    highestSeverity: "muted",
+    objects: [],
+    staleCount: 0,
+    total: 0,
+    unreachableCount: 0,
+  })),
+  listForIssue: vi.fn(async () => []),
+  refreshIssueObjects: vi.fn(async () => []),
+  syncCommentSafely: vi.fn(async () => undefined),
+  syncDocumentSafely: vi.fn(async () => undefined),
+  syncIssueSafely: vi.fn(async () => undefined),
+}));
 
 function registerRouteMocks() {
   vi.doMock("@paperclipai/shared/telemetry", () => ({
@@ -85,6 +113,10 @@ function registerRouteMocks() {
 
   vi.doMock("../services/work-products.js", () => ({
     workProductService: () => mockWorkProductService,
+  }));
+
+  vi.doMock("../services/external-objects.js", () => ({
+    externalObjectService: () => mockExternalObjectService,
   }));
 
   vi.doMock("../services/activity-log.js", () => ({
@@ -231,6 +263,7 @@ describe("agent issue mutation checkout ownership", () => {
     vi.doUnmock("../services/activity-log.js");
     vi.doUnmock("../services/agents.js");
     vi.doUnmock("../services/documents.js");
+    vi.doUnmock("../services/external-objects.js");
     vi.doUnmock("../services/index.js");
     vi.doUnmock("../services/issues.js");
     vi.doUnmock("../services/work-products.js");
@@ -258,6 +291,14 @@ describe("agent issue mutation checkout ownership", () => {
     mockIssueService.update.mockReset();
     mockIssueService.findMentionedAgents.mockReset();
     mockDocumentService.upsertIssueDocument.mockReset();
+    mockExternalObjectService.getIssueSummaries.mockClear();
+    mockExternalObjectService.getIssueSummary.mockClear();
+    mockExternalObjectService.getProjectSummary.mockClear();
+    mockExternalObjectService.listForIssue.mockClear();
+    mockExternalObjectService.refreshIssueObjects.mockClear();
+    mockExternalObjectService.syncCommentSafely.mockClear();
+    mockExternalObjectService.syncDocumentSafely.mockClear();
+    mockExternalObjectService.syncIssueSafely.mockClear();
     mockWorkProductService.getById.mockReset();
     mockWorkProductService.update.mockReset();
     mockStorageService.putFile.mockReset();
