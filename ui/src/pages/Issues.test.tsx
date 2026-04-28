@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildIssuesSearchUrl, getNextIssuesPageOffset } from "./Issues";
+import type { Issue } from "@paperclipai/shared";
+import { buildIssuesSearchUrl, getNextIssuesPageOffset, mergeIssuePagesStable } from "./Issues";
+
+function createIssue(id: string, title: string): Issue {
+  return { id, title } as Issue;
+}
 
 describe("buildIssuesSearchUrl", () => {
   it("preserves trailing spaces in the synced search param", () => {
@@ -25,5 +30,18 @@ describe("issues page pagination helpers", () => {
   it("stops requesting issue pages when the current page is partial", () => {
     expect(getNextIssuesPageOffset(499, 0)).toBeUndefined();
     expect(getNextIssuesPageOffset(999, 2000, 1000)).toBeUndefined();
+  });
+
+  it("dedupes overlapping pages without moving the original issue position", () => {
+    const first = createIssue("issue-1", "Original first");
+    const second = createIssue("issue-2", "Second");
+    const duplicateFirst = createIssue("issue-1", "Duplicate first");
+    const third = createIssue("issue-3", "Third");
+
+    expect(mergeIssuePagesStable([[first, second], [duplicateFirst, third]])).toEqual([
+      first,
+      second,
+      third,
+    ]);
   });
 });

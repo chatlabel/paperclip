@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback, useState } from "react";
+import { useEffect, useMemo, useCallback, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "@/lib/router";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { issuesApi } from "../api/issues";
@@ -13,6 +13,7 @@ import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { IssuesList } from "../components/IssuesList";
 import { CircleDot } from "lucide-react";
+import type { Issue } from "@paperclipai/shared";
 
 const WORKSPACE_FILTER_ISSUE_LIMIT = 1000;
 const ISSUES_PAGE_SIZE = 500;
@@ -23,6 +24,21 @@ export function getNextIssuesPageOffset(
   pageSize: number = ISSUES_PAGE_SIZE,
 ): number | undefined {
   return loadedPageSize >= pageSize ? currentOffset + pageSize : undefined;
+}
+
+export function mergeIssuePagesStable(pages: Issue[][]): Issue[] {
+  const seenIssueIds = new Set<string>();
+  const merged: Issue[] = [];
+
+  for (const page of pages) {
+    for (const issue of page) {
+      if (seenIssueIds.has(issue.id)) continue;
+      seenIssueIds.add(issue.id);
+      merged.push(issue);
+    }
+  }
+
+  return merged;
 }
 
 export function buildIssuesSearchUrl(currentHref: string, search: string): string | null {
@@ -45,6 +61,7 @@ export function Issues() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const fetchNextPageInFlightRef = useRef(false);
 
   const initialSearch = searchParams.get("q") ?? "";
   const [syncedSearch, setSyncedSearch] = useState(initialSearch);
@@ -131,12 +148,15 @@ export function Issues() {
     placeholderData: (previousData) => previousData,
   });
 
-  const issues = useMemo(() => issuePages?.pages.flat() ?? [], [issuePages]);
+  const issues = useMemo(() => mergeIssuePagesStable(issuePages?.pages ?? []), [issuePages]);
   const hasMoreServerIssues = syncedSearch.trim().length === 0
     && hasNextPage === true;
   const loadMoreServerIssues = useCallback(() => {
-    if (!hasNextPage || isFetchingNextPage) return;
-    void fetchNextPage();
+    if (!hasNextPage || isFetchingNextPage || fetchNextPageInFlightRef.current) return;
+    fetchNextPageInFlightRef.current = true;
+    void fetchNextPage({ cancelRefetch: false }).finally(() => {
+      fetchNextPageInFlightRef.current = false;
+    });
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const updateIssue = useMutation({
