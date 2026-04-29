@@ -1,0 +1,154 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperclip
+  namespace: paperclip
+  labels:
+    app: paperclip
+spec:
+  selector:
+    app: paperclip
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3100
+  type: ClusterIP
+---
+# PVC para /paperclip (HOME do user node) — guarda config, sessoes resumiveis,
+# logs de heartbeat, agent state, etc. Equivalente ao volume `paperclip-data`
+# que usavamos no docker-compose.standalone.yml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperclip-home
+  namespace: paperclip
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 30Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperclip
+  namespace: paperclip
+  labels:
+    app: paperclip
+spec:
+  replicas: 1
+  strategy:
+    # State em PVC RWO + processo unico segurando heartbeat sessions = nunca duas instancias.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: paperclip
+  template:
+    metadata:
+      labels:
+        app: paperclip
+    spec:
+      serviceAccountName: paperclip-agent
+      nodeSelector:
+        workload: paperclip
+      tolerations:
+        - key: paperclip-only
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      # InitContainer baixa kubectl pinned numa versao, copia pra emptyDir compartilhado.
+      # Decisao: NAO bake kubectl na imagem upstream — mantem fork limpo, versao kubectl
+      # eh apenas uma string aqui no manifest.
+      initContainers:
+        - name: install-kubectl
+          image: alpine:3.20
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              KUBECTL_VERSION="v1.31.4"
+              ARCH="$(uname -m)"
+              case "$ARCH" in
+                x86_64) ARCH=amd64 ;;
+                aarch64) ARCH=arm64 ;;
+              esac
+              apk add --no-cache curl ca-certificates
+              curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /shared/kubectl
+              chmod +x /shared/kubectl
+              /shared/kubectl version --client=true
+          volumeMounts:
+            - name: shared-bin
+              mountPath: /shared
+      containers:
+        - name: paperclip
+          image: ghcr.io/paperclipai/paperclip:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3100
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3100"
+            - name: SERVE_UI
+              value: "true"
+            - name: PAPERCLIP_HOME
+              value: /paperclip
+            - name: PAPERCLIP_DEPLOYMENT_MODE
+              value: authenticated
+            - name: PAPERCLIP_DEPLOYMENT_EXPOSURE
+              value: private
+            - name: PAPERCLIP_PUBLIC_URL
+              value: https://paperclip.dnshub.space
+            - name: PAPERCLIP_DB_MODE
+              value: postgres
+            - name: DATABASE_URL
+              value: postgres://paperclip:$(POSTGRES_PASSWORD)@paperclip-postgres:5432/paperclip
+            - name: PATH
+              value: /shared:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          envFrom:
+            - secretRef:
+                name: paperclip-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: home
+              mountPath: /paperclip
+            - name: shared-bin
+              mountPath: /shared
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: paperclip-home
+        - name: shared-bin
+          emptyDir: {}

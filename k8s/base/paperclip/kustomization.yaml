@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: paperclip
+
+resources:
+  - namespace.yaml
+  - serviceaccount-rbac.yaml
+  - postgres.yaml
+  - paperclip-app.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+  # TODO: adicionar sealed-secrets.yaml com paperclip-secrets contendo
+  # POSTGRES_PASSWORD, BETTER_AUTH_SECRET, ANTHROPIC_API_KEY, OPENAI_API_KEY.
+  # O sealed-secrets-controller do cluster precisa ja estar instalado;
+  # gerar via `kubeseal --controller-namespace kube-system -f secret.yaml`.

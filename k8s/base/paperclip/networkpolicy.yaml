@@ -1,0 +1,107 @@
+---
+# Default-deny ingress no namespace `paperclip` — so Traefik (kube-system) chega.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: paperclip
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+# Permite Traefik entrar no Service paperclip:80
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-paperclip
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app: paperclip
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 3100
+---
+# Permite paperclip-app -> postgres
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperclip-to-postgres
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app: paperclip-postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: paperclip
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Egress do paperclip-app: DNS, Postgres dele, K8s API, namespaces de projetos
+# (label paperclip.io/managed=true), e internet 80/443 (Anthropic/OpenAI/GHCR).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperclip-egress
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app: paperclip
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: paperclip-postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              paperclip.io/managed: "true"
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
