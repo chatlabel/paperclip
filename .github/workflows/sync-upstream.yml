@@ -1,0 +1,128 @@
+name: Sync Upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_repo:
+        description: "Upstream repo to merge from (owner/name)"
+        required: true
+        default: "paperclipai/paperclip"
+      upstream_branch:
+        description: "Upstream branch to merge"
+        required: true
+        default: "master"
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout master with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Configure git identity
+        run: |
+          git config user.name "sync-upstream-bot"
+          git config user.email "sync-upstream-bot@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream "https://github.com/${{ inputs.upstream_repo }}.git"
+          git fetch upstream "${{ inputs.upstream_branch }}"
+
+      - name: Compute delta vs upstream
+        id: delta
+        run: |
+          BEHIND=$(git rev-list --count "HEAD..upstream/${{ inputs.upstream_branch }}")
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="sync/upstream-${DATE}"
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Sync status"
+            echo
+            echo "- Upstream: \`${{ inputs.upstream_repo }}\` @ \`${{ inputs.upstream_branch }}\`"
+            echo "- Commits behind: **$BEHIND**"
+            echo "- Target branch: \`$BRANCH\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Skip if already in sync
+        if: steps.delta.outputs.behind == '0'
+        run: |
+          echo "::notice::Nothing to sync — master is already at upstream/${{ inputs.upstream_branch }}."
+          exit 0
+
+      - name: Create sync branch and merge upstream
+        if: steps.delta.outputs.behind != '0'
+        id: merge
+        run: |
+          BRANCH="${{ steps.delta.outputs.branch }}"
+          git checkout -B "$BRANCH"
+          if git merge --no-ff --no-edit \
+              "upstream/${{ inputs.upstream_branch }}" \
+              -m "Sync upstream/${{ inputs.upstream_branch }} (${{ steps.delta.outputs.date }})"; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Merge conflict against upstream/${{ inputs.upstream_branch }}. Resolve locally and push the sync branch by hand: git fetch upstream && git checkout master && git merge upstream/${{ inputs.upstream_branch }}"
+            git merge --abort
+            exit 1
+          fi
+
+      - name: Push sync branch
+        if: steps.merge.outputs.merged == 'true'
+        run: git push --force origin "${{ steps.delta.outputs.branch }}"
+
+      - name: Build PR body
+        if: steps.merge.outputs.merged == 'true'
+        run: |
+          {
+            printf '%s\n' "Manual sync of \`${{ inputs.upstream_repo }}/${{ inputs.upstream_branch }}\` into our \`master\`."
+            printf '\n'
+            printf '## Commits coming from upstream\n\n'
+            printf '```\n'
+            git log --oneline "origin/master..HEAD" | head -50
+            printf '```\n\n'
+            printf 'Total commits behind before sync: **%s**\n\n' "${{ steps.delta.outputs.behind }}"
+            printf '## Review checklist\n\n'
+            printf -- '- [ ] Diff em `k8s/` deve ser zero (upstream nao toca essa pasta).\n'
+            printf -- '- [ ] Diff em `Dockerfile.dev`, `docker-compose.standalone.yml`, `.claude/skills/paperclip-add-project/` deve ser zero.\n'
+            printf -- '- [ ] Verificar se ha env vars novas exigidas pela imagem upstream que nao estao no `paperclip-app.yaml` ou no `paperclip-secrets`.\n'
+            printf -- '- [ ] Conferir se a tag fixada em `k8s/base/paperclip/paperclip-app.yaml` (`image: ghcr.io/paperclipai/paperclip:...`) ainda existe no GHCR; bumpar se quiser pegar uma versao mais nova.\n'
+            printf '\nTriggered manually via `workflow_dispatch`.\n'
+          } > /tmp/pr-body.md
+
+      - name: Open or update PR
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          BRANCH="${{ steps.delta.outputs.branch }}"
+          existing_url="$(
+            gh pr list --state open --head "$BRANCH" --json url,headRepositoryOwner \
+              --jq ".[] | select(.headRepositoryOwner.login == \"$REPO_OWNER\") | .url" |
+            head -n 1
+          )"
+          if [ -n "$existing_url" ]; then
+            gh pr edit "$existing_url" --body-file /tmp/pr-body.md
+            echo "Updated existing PR: $existing_url" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            new_url="$(gh pr create \
+              --base master \
+              --head "$BRANCH" \
+              --title "Sync upstream/${{ inputs.upstream_branch }} (${{ steps.delta.outputs.date }})" \
+              --body-file /tmp/pr-body.md)"
+            echo "Opened PR: $new_url" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
