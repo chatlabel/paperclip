@@ -1,0 +1,73 @@
+name: paperclip-standalone
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: paperclip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paperclip
+      POSTGRES_PASSWORD: paperclip
+      POSTGRES_DB: paperclip
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperclip -d paperclip"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "5544:5432"
+    volumes:
+      - paperclip-pgdata:/var/lib/postgresql/data
+
+  paperclip:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: paperclip-standalone-dev:latest
+    container_name: paperclip-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PAPERCLIP_PORT:-3100}:3100"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3100"
+      SERVE_UI: "true"
+      PAPERCLIP_HOME: "/paperclip"
+      DATABASE_URL: "postgres://paperclip:paperclip@postgres:5432/paperclip"
+      PAPERCLIP_DB_MODE: "postgres"
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set in .env}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Slug que cada projeto usa pra namespacear sua stack auxiliar (sobrescrito por workspace)
+      PAPERCLIP_PROJECTS_NETWORK: "paperclip-projects-net"
+    volumes:
+      - paperclip-data:/paperclip
+      # SOCKET MOUNT: agente roda `docker compose` pra subir stacks auxiliares dos projetos.
+      # SO usar em dev local confiavel — equivale a root no host.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Adiciona o GID do grupo 'docker' do host pra permitir o user 'node' acessar o socket.
+    # No Docker Desktop Mac, o socket eh root:root mode 660, entao usamos GID 0 (root).
+    group_add:
+      - "0"
+    networks:
+      - default
+      - paperclip-projects-net
+
+volumes:
+  paperclip-pgdata:
+  paperclip-data:
+
+networks:
+  default:
+  # Network externa onde TODAS as stacks auxiliares dos projetos se conectam.
+  # Cada projeto declara `networks: paperclip-projects-net: external: true` no seu compose.
+  # Criar uma vez via: docker network create paperclip-projects-net
+  paperclip-projects-net:
+    external: true
+    name: paperclip-projects-net

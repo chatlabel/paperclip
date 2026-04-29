@@ -1,0 +1,33 @@
+# Dockerfile.dev — extends paperclip-standalone:latest with Docker CLI + Compose v2
+#
+# Used by docker-compose.standalone.yml when running the local multi-project setup
+# with bind-mounted /var/run/docker.sock so agents can run `docker compose up`
+# for per-project auxiliary services (DBs, message brokers, nginx, etc.).
+#
+# SECURITY: this image bind-mounts the host docker socket. Use ONLY in trusted
+# local dev. Do not deploy this variant to shared/multi-tenant hosts.
+ARG BASE_IMAGE=paperclip-standalone:latest
+FROM ${BASE_IMAGE}
+
+USER root
+
+# Install Docker CE CLI + Compose v2 plugin (no daemon — we use the host's via socket).
+# Pin to bookworm repo since Docker doesn't yet ship trixie packages; ABI-compatible.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+  && install -m 0755 -d /etc/apt/keyrings \
+  && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+  && chmod a+r /etc/apt/keyrings/docker.asc \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+       > /etc/apt/sources.list.d/docker.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+  && rm -rf /var/lib/apt/lists/* \
+  && docker --version \
+  && docker compose version
+
+# Adiciona o user `node` ao grupo `root` para que ele tenha permissao no
+# /var/run/docker.sock (root:root mode 660). Necessario porque o entrypoint
+# usa `gosu node` e o gosu carrega supplementary groups APENAS de /etc/group
+# — descarta o `group_add` do compose. Sem isso o agente perde acesso ao socket.
+RUN usermod -aG root node

@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/chatlabel/paperclip.git
+    targetRevision: master
+    path: k8s/base/paperclip
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: paperclip
+  syncPolicy:
+    # Manual sync na 1a versao: prune/selfHeal habilitados manualmente apos
+    # validar o 1o deploy. Pra ativar, descomentar `automated:` abaixo.
+    # automated:
+    #   prune: true
+    #   selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
