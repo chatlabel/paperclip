@@ -84,8 +84,11 @@ spec:
               mountPath: /shared
       containers:
         - name: paperclip
-          image: ghcr.io/paperclipai/paperclip:latest
-          imagePullPolicy: Always
+          # Pin imutavel pelo digest. latest @ 2026-04-30 (sha256:2862f13c...).
+          # Pra atualizar: pegar novo digest com `crane digest ghcr.io/paperclipai/paperclip:latest`
+          # ou via curl no manifests endpoint, abrir PR substituindo aqui. ArgoCD aplica.
+          image: ghcr.io/paperclipai/paperclip@sha256:2862f13cb20c3e96c27d8dcad366b7aecd8670296a0e939262bd16688d8584e8
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3100
