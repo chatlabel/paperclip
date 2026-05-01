@@ -1,15 +1,14 @@
 ---
-# Default-deny ingress no namespace `paperclip` — so Traefik (kube-system) chega.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-ingress
-  namespace: paperclip
-spec:
-  podSelector: {}
-  policyTypes: ["Ingress"]
----
-# Permite Traefik entrar no Service paperclip:80
+# Sem default-deny-ingress global. Cada pod do ns ja tem ao menos uma
+# NetworkPolicy com `policyTypes: [Ingress]` selecionando ele
+# (allow-traefik-to-paperclip, allow-traefik-to-acme-solver,
+# allow-paperclip-to-postgres) — em K8s NetworkPolicy semantics, qualquer
+# policy com policyTypes:[Ingress] que selecione o pod ja implica deny
+# implicito + allow das rules dela. Default-deny global era redundante e
+# em alguns enforcers (k3s embedded netpol) bloqueia respostas UDP de
+# DNS via conntrack, quebrando getaddrinfo no paperclip pod.
+#
+# Permite Traefik entrar no Service paperclip:3100
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
