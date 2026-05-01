@@ -82,12 +82,14 @@ spec:
           # ou via curl no manifests endpoint, abrir PR substituindo aqui. ArgoCD aplica.
           image: ghcr.io/paperclipai/paperclip@sha256:2862f13cb20c3e96c27d8dcad366b7aecd8670296a0e939262bd16688d8584e8
           imagePullPolicy: IfNotPresent
-          # DooD wrapper: garante que o user `node` (uid 1000) seja membro do
-          # group `docker` (GID 988 no host k3s-paperclip-01) ANTES do
-          # docker-entrypoint.sh exec gosu node — gosu reseta supplementary
-          # groups via initgroups(), entao supplementalGroups do podSpec sozinho
-          # nao alcanca o processo final. Solucao: criar/atualizar /etc/group
-          # do container no boot.
+          # Wrapper de boot:
+          # 1. DooD — adiciona `node` (uid 1000) ao group `docker` (GID 988 do
+          #    host) antes do gosu, pra socket /var/run/docker.sock ficar
+          #    acessivel ao app (gosu reseta supplementary groups).
+          # 2. Git auth — se GH_TOKEN env var existir (vindo do Secret
+          #    paperclip-git), cria ~/.netrc com perms 600 pra `git clone`
+          #    em repos privados funcionar via HTTPS. Suporta multiplos repos
+          #    sob mesma org/usuario com 1 PAT fine-grained (D-13).
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -96,6 +98,17 @@ spec:
                 groupadd -g 988 docker
               fi
               usermod -aG docker node
+
+              if [ -n "${GH_TOKEN:-}" ]; then
+                umask 077
+                printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$GH_TOKEN" > /paperclip/.netrc
+                chown node:node /paperclip/.netrc
+                chmod 600 /paperclip/.netrc
+                echo "[boot] /paperclip/.netrc configurado (github.com)"
+              else
+                echo "[boot] GH_TOKEN nao setado; .netrc nao foi escrito"
+              fi
+
               exec docker-entrypoint.sh node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
           ports:
             - name: http
@@ -124,6 +137,13 @@ spec:
           envFrom:
             - secretRef:
                 name: paperclip-secrets
+            # Secret separado, gerenciado fora do Sealed (criado manualmente
+            # pelo operador via kubectl create secret) com chave GH_TOKEN.
+            # `optional: true` pra deployment subir mesmo sem o secret existir
+            # ainda (boot wrapper detecta a ausencia e segue).
+            - secretRef:
+                name: paperclip-git
+                optional: true
           resources:
             requests:
               cpu: 250m
