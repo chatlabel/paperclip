@@ -90,6 +90,9 @@ spec:
       app: paperclip
   policyTypes: ["Egress"]
   egress:
+    # DNS via CoreDNS — duas regras complementares pra cobrir implementacoes
+    # de NetworkPolicy que avaliam antes ou depois do DNAT.
+    # Regra 1: namespaceSelector kube-system (post-DNAT — pod IP do CoreDNS)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -99,6 +102,19 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # Regra 2: ipBlock cobrindo services CIDR k3s (10.43.0.0/16) — pre-DNAT,
+    # quando o pacote ainda tem destinacao = ClusterIP (10.43.0.10 kube-dns,
+    # 10.43.0.1 kubernetes API). Cobre DNS + API server num so item.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.0/16
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: TCP
+          port: 443
     - to:
         - podSelector:
             matchLabels:
