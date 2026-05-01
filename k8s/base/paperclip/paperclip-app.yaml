@@ -58,26 +58,19 @@ spec:
           operator: Equal
           value: "true"
           effect: NoSchedule
-      # InitContainer baixa kubectl pinned numa versao, copia pra emptyDir compartilhado.
+      # InitContainer copia kubectl pre-built de alpine/k8s pra emptyDir compartilhado.
       # Decisao: NAO bake kubectl na imagem upstream — mantem fork limpo, versao kubectl
-      # eh apenas uma string aqui no manifest.
+      # eh apenas uma string aqui no manifest. Imagem alpine/k8s carrega kubectl pronto,
+      # entao o init nao depende de rede (apk add foi a fonte de falhas de bootstrap).
       initContainers:
         - name: install-kubectl
-          image: alpine:3.20
+          image: alpine/k8s:1.31.4
           command:
             - sh
             - -c
             - |
               set -e
-              KUBECTL_VERSION="v1.31.4"
-              ARCH="$(uname -m)"
-              case "$ARCH" in
-                x86_64) ARCH=amd64 ;;
-                aarch64) ARCH=arm64 ;;
-              esac
-              apk add --no-cache curl ca-certificates
-              curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /shared/kubectl
-              chmod +x /shared/kubectl
+              cp /usr/bin/kubectl /shared/kubectl
               /shared/kubectl version --client=true
           volumeMounts:
             - name: shared-bin
