@@ -32,6 +32,31 @@ spec:
         - protocol: TCP
           port: 3100
 ---
+# Permite Traefik chegar nos pods solver do cert-manager (ACME HTTP-01).
+# Sem essa regra, o default-deny-ingress bloqueia o solver e o challenge
+# retorna 502, impedindo emissao do cert TLS via letsencrypt-prod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-acme-solver
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8089
+---
 # Permite paperclip-app -> postgres
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
