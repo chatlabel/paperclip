@@ -8,6 +8,7 @@ resources:
   - serviceaccount-rbac.yaml
   - sealed-secrets.yaml
   - postgres.yaml
+  - project-helpers-configmap.yaml
   - paperclip-app.yaml
   - ingress.yaml
   - networkpolicy.yaml
