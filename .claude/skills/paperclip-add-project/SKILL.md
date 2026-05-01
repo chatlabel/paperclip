@@ -1,13 +1,174 @@
 ---
 name: paperclip-add-project
-description: Adicionar projeto novo ao Paperclip standalone com stack auxiliar (DB, broker, nginx) via docker compose. Use ao registrar Project Workspace, configurar setupCommand/cleanupCommand, ou debugar socket Docker em paperclip-app.
+description: Adicionar projeto novo ao Paperclip (modo K3s prod com DooD ou standalone Docker Desktop) com stack auxiliar via docker compose. Use ao registrar Project Workspace, configurar setupCommand/cleanupCommand, ou debugar permissões do socket Docker no pod.
 ---
 
 # Paperclip — adicionar projeto novo com stack auxiliar
 
+Esta skill cobre **dois modos** de operação:
+
+| Modo | Quando usar | Estado |
+|---|---|---|
+| **K3s prod (DooD)** | Caminho oficial. Agente roda no pod paperclip do cluster, stacks sobem no Docker engine do nó dedicado. | Implementado em PRs #9 e #10 |
+| **Standalone (Docker Desktop)** | Quando operador iterando localmente. Stacks sobem no Docker do laptop. | Mantido como referência (apêndice) |
+
+A diferença prática: **onde está o Docker daemon**. Convenções do `docker-compose.dev.yml` do repo cliente são as mesmas (`docs/ops/project-conventions.md`).
+
+---
+
+## Modo K3s prod (DooD) — caminho oficial
+
+Pré-requisitos (já cumpridos):
+- `k3s-paperclip-01` com Docker CE instalado (D-12).
+- Pod `paperclip-app` com `/var/run/docker.sock` montado + `docker` CLI + plugin compose mountados de `/usr/bin/docker` e `/usr/libexec/docker/cli-plugins/` (PRs #9 e #10).
+- User `node` no grupo `docker` (GID 988) via wrapper de entrypoint.
+- Helpers em `scripts/projects/` (este repo).
+
+### Arquitetura (modo K3s prod)
+
+```
+K3s cluster
+└─ k3s-paperclip-01 (taint: paperclip-only)
+   ├─ Docker engine 29.x (instalado no nó)
+   │  └─ /var/run/docker.sock
+   │     ↑ hostPath mount
+   ├─ pod paperclip-app
+   │  ├─ /paperclip (PVC paperclip-home, RWO 30Gi)
+   │  │  └─ projects/<slug>/
+   │  │     ├─ main/                  ← clone canônico
+   │  │     └─ worktrees/<task-id>/   ← git worktree por task
+   │  ├─ /usr/local/bin/docker        ← mount do host
+   │  └─ /usr/local/libexec/docker/cli-plugins/  ← mount do host
+   ├─ pod paperclip-postgres
+   └─ containers de stacks por task   ← criados via DooD pelo agente
+      ├─ <slug>-<task-id>-postgres
+      ├─ <slug>-<task-id>-redis
+      └─ ...
+```
+
+**Decisão chave:** containers das stacks dos projetos rodam **no daemon do nó**, fora do K8s. O kubectl/argocd não enxerga eles. Sweep de stacks órfãs é responsabilidade do operador (cron previsto na Fase 05).
+
+### Passos para adicionar um projeto novo
+
+#### 1. Garantir que o repo cliente cumpre a convenção
+
+Validar `docker-compose.dev.yml` segundo `docs/ops/project-conventions.md`:
+- sem `internal: true`
+- `mem_limit:` por service
+- `container_name: <slug>-<svc>` (sem colisão entre projetos)
+- ports em `127.0.0.1:` (nunca `0.0.0.0:`)
+- named volumes (não bind-mount em `/paperclip`)
+- healthchecks em services dependedos por outros
+
+Se faltar algo, abrir issue/PR no repo cliente antes de cadastrar no Paperclip.
+
+#### 2. Criar workspace dentro do pod paperclip
+
+```sh
+POD=$(kubectl -n paperclip get pod -l app=paperclip -o jsonpath='{.items[0].metadata.name}')
+kubectl -n paperclip exec "$POD" -c paperclip -- gosu node sh -c '
+  mkdir -p /paperclip/projects/<slug>/main &&
+  cd /paperclip/projects/<slug>/main &&
+  git clone <repoUrl> .
+'
+```
+
+Estrutura padrão:
+```
+/paperclip/projects/<slug>/
+├── main/                      ← clone canônico (origin)
+└── worktrees/                 ← criado on-demand pelo agente, um worktree por task
+```
+
+#### 3. Registrar o Project Workspace via API do Paperclip
+
+`POST /api/companies/<companyId>/projects` com body:
+
+```json
+{
+  "name": "<slug>",
+  "description": "...",
+  "status": "in_progress",
+  "workspace": {
+    "name": "main",
+    "cwd": "/paperclip/projects/<slug>/main",
+    "setupCommand": "/app/scripts/projects/setupProjectStack.sh <slug> ${PAPERCLIP_TASK_ID} /paperclip/projects/<slug>/worktrees/${PAPERCLIP_TASK_ID}",
+    "cleanupCommand": "/app/scripts/projects/cleanupProjectStack.sh <slug> ${PAPERCLIP_TASK_ID} /paperclip/projects/<slug>/worktrees/${PAPERCLIP_TASK_ID}",
+    "isPrimary": true
+  }
+}
+```
+
+(Os helpers ficam disponíveis em `/app/scripts/projects/` dentro do pod via build/COPY do repo `chatlabel/paperclip`. Se o repo não está copiado pra dentro da imagem, monte via volume ou ajuste o caminho.)
+
+#### 4. Atribuir issue/task ao agente
+
+O heartbeat de `assignment` injeta automaticamente o `cwd`, `setupCommand` e `cleanupCommand` no contexto do agente. O agente é orientado (via prompt template) a:
+
+1. Criar worktree pra task: `git -C /paperclip/projects/<slug>/main worktree add /paperclip/projects/<slug>/worktrees/<task-id> <branch>`
+2. Rodar o `setupCommand` (sobe stack)
+3. Trabalhar (Coder edita / Tester roda Playwright/Vitest contra a stack)
+4. Rodar o `cleanupCommand` (derruba stack, limpa volumes)
+5. Remover o worktree: `git -C /paperclip/projects/<slug>/main worktree remove ../<task-id>`
+
+#### 5. Validação manual (smoke test)
+
+```sh
+POD=$(kubectl -n paperclip get pod -l app=paperclip -o jsonpath='{.items[0].metadata.name}')
+
+# 1. Docker engine acessível como node:
+kubectl -n paperclip exec "$POD" -c paperclip -- gosu node docker version | head -3
+
+# 2. Stack de uma task de teste
+kubectl -n paperclip exec "$POD" -c paperclip -- gosu node \
+  /app/scripts/projects/setupProjectStack.sh demo T0 /paperclip/projects/demo/worktrees/T0
+
+# 3. Containers visíveis
+kubectl -n paperclip exec "$POD" -c paperclip -- gosu node \
+  docker ps --filter label=com.docker.compose.project=demo-T0
+
+# 4. Cleanup
+kubectl -n paperclip exec "$POD" -c paperclip -- gosu node \
+  /app/scripts/projects/cleanupProjectStack.sh demo T0 /paperclip/projects/demo/worktrees/T0
+
+# 5. Confirmar zero resíduo
+kubectl -n paperclip exec "$POD" -c paperclip -- gosu node \
+  docker ps -a --filter label=com.docker.compose.project=demo-T0
+```
+
+### Pegadinhas comuns (modo K3s)
+
+| Sintoma | Causa real | Fix |
+|---|---|---|
+| `docker: executable not found` dentro do pod | Mount de `/usr/local/bin/docker` não chegou (PR #10 não synced) | Argo sync. Conferir manifest. |
+| `Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?` | Daemon do nó parou OU socket não montou | `ssh root@46.225.170.4 'systemctl status docker'`. Conferir hostPath no manifest. |
+| `permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock` | User `node` não está no group `docker` em `/etc/group` do container | Wrapper de boot do command override falhou. Conferir logs do pod no startup. |
+| Bind-mount no compose do projeto monta diretório vazio | Daemon Docker do nó não enxerga paths dentro do PVC `paperclip-home` | Trocar por named volume. Ver `docs/ops/project-conventions.md`. |
+| Containers de tasks paralelas conflitam | Mesmo `container_name` ou portas | Sempre prefixar `container_name: <slug>-<svc>` (a convenção exige). Compose project name `<slug>-<task-id>` isola, mas `container_name` é global. **Ou seja: container_name** deve incluir task_id se o repo for usado em paralelo (ex.: `<slug>-<task-id>-postgres`). Decidir caso a caso. |
+| Worktrees do git brigam por lock | `git fetch` paralelo no mesmo `main/` | Usa `git -C main` com flock ou fetch só no setup. |
+| Stack órfã depois de pod restart | `cleanupCommand` não rodou (agente foi morto antes) | Sweep periódico (Fase 05). Filtra por `label=paperclip.task=*` cruzando com tasks abertas. |
+
+### Checklist final (modo K3s)
+
+- [ ] PR #9 e PR #10 (chatlabel/paperclip) merged + Argo synced
+- [ ] `kubectl exec ... -- gosu node docker version` retorna client + server
+- [ ] Repo cliente tem `docker-compose.dev.yml` válido pelo `docs/ops/project-conventions.md`
+- [ ] Project Workspace registrado com `cwd`, `setupCommand`, `cleanupCommand`
+- [ ] Smoke test setup → up → ps → cleanup → zero resíduo passou
+- [ ] Agente prompt template orienta sequência: worktree → setup → trabalho → cleanup → remove worktree
+
+---
+
+## Apêndice: modo standalone (Docker Desktop local)
+
+Mantido como referência caso o operador trabalhe localmente fora do K3s prod. **Não é o caminho oficial em prod** — usar quando:
+- Iterando rapidamente sem mexer em prod
+- Demo / desenvolvimento de skills
+- Debug do próprio paperclip-app
+
 Pre-requisito: paperclip-standalone com `Dockerfile.dev` (docker CLI + Compose v2 instalados, `node` no grupo `root`) e `docker-compose.standalone.yml` com `/var/run/docker.sock` montado e network externa `paperclip-projects-net`. Validado em 2026-04-28 com nginx-demo (HUB-7).
 
-## Arquitetura
+### Arquitetura (standalone)
 
 ```
 host (macOS)
@@ -23,22 +184,22 @@ host (macOS)
        └─ networks: paperclip-projects-net  ← reachable por hostname de paperclip-app
 ```
 
-Decisões-chave:
-- O daemon Docker do host executa as stacks; paperclip-app só envia comandos via socket.
-- **Bind-mounts em compose-files do projeto** sao resolvidos pelo daemon do host. Paths dentro do volume nomeado `paperclip-data` NAO sao visiveis ao daemon. Use **named volumes** para dados persistentes (Postgres/Mongo data) ou imagens/configs estaticas.
-- Container names devem ser unicos globalmente (`<slug>-<service>`). Cada projeto namespaceia seu compose com `name: <slug>` no topo.
+Decisões-chave (standalone):
+- O daemon Docker do host (Docker Desktop) executa as stacks; paperclip-app só envia comandos via socket.
+- **Bind-mounts em compose-files do projeto** são resolvidos pelo daemon do host. Paths dentro do volume nomeado `paperclip-data` NÃO são visíveis ao daemon. Use **named volumes**.
+- Container names devem ser únicos globalmente (`<slug>-<service>`).
 
-## Passos para adicionar um projeto novo
+### Passos (standalone)
 
-### 1. Criar o workspace dentro de paperclip-app
+#### 1. Criar o workspace dentro de paperclip-app
 
 ```sh
 docker exec -u node paperclip-app sh -lc 'mkdir -p /paperclip/projects/<slug>'
 ```
 
-### 2. Escrever `docker-compose.dev.yml`
+#### 2. Escrever `docker-compose.dev.yml`
 
-Template para `<slug>` (substituir):
+Mesma convenção do modo K3s (`docs/ops/project-conventions.md`), mais o detalhe de network externa:
 
 ```yaml
 name: <slug>
@@ -47,10 +208,9 @@ services:
     image: <image>:<tag>
     container_name: <slug>-<svc>
     restart: unless-stopped
+    mem_limit: 512m
     networks:
       - paperclip-projects-net
-    # Para dados persistentes use named volume — NAO use bind-mount com path
-    # do volume paperclip-data (o daemon nao enxerga).
     volumes:
       - <slug>-<svc>-data:/var/lib/<servicodir>
 
@@ -62,90 +222,27 @@ networks:
     external: true
 ```
 
-Coloca via:
+#### 3. Registrar Project Workspace
 
-```sh
-cat <<'EOF' | docker exec -i -u node paperclip-app tee /paperclip/projects/<slug>/docker-compose.dev.yml > /dev/null
-... (yaml acima) ...
-EOF
-```
+Mesmo POST do modo K3s, mas com `cwd: /paperclip/projects/<slug>` direto (sem worktree, single-tenant).
 
-### 3. Registrar o Project Workspace via API
-
-`POST /api/companies/<companyId>/projects` com body:
-
-```json
-{
-  "name": "<slug>",
-  "description": "...",
-  "status": "in_progress",
-  "workspace": {
-    "name": "main",
-    "cwd": "/paperclip/projects/<slug>",
-    "setupCommand": "cd /paperclip/projects/<slug> && docker compose -f docker-compose.dev.yml up -d --wait",
-    "cleanupCommand": "cd /paperclip/projects/<slug> && docker compose -f docker-compose.dev.yml down",
-    "isPrimary": true
-  }
-}
-```
-
-Pegue o `companyId` do localStorage (`paperclip.selectedCompanyId`) ou via `GET /api/companies`. A API requer sessao autenticada (cookie HttpOnly do Better Auth) — chamar do browser via `fetch(..., { credentials: 'include' })` ou via `paperclipai company list --api-key <token>`.
-
-### 4. Atribuir issue ao agente
-
-Quando o agente recebe a issue, o heartbeat de `assignment` injeta automaticamente o `cwd` do Project Workspace. Confirmavel no log do run via `"system","subtype":"init","cwd":"/paperclip/projects/<slug>"`.
-
-### 5. (Para projetos com codigo da app) clonar o repo no workspace
-
-O `setupCommand` pode tambem fazer `git clone` na primeira execucao:
-
-```sh
-[ -d ./.git ] || git clone <repoUrl> .
-docker compose -f docker-compose.dev.yml up -d --wait
-```
-
-Ou use `repoUrl`/`repoRef` no workspace para que o Paperclip clone (modo execution_workspace).
-
-## Validacao
-
-Apos registrar o projeto, peca ao agente algo simples:
-
-```sh
-cd /paperclip/projects/<slug>
-docker compose -f docker-compose.dev.yml up -d --wait
-docker ps --filter name=<slug>-
-curl -sS http://<slug>-<svc>:<port>/  # ou comando especifico do servico
-docker compose -f docker-compose.dev.yml down
-```
-
-O agente deve conseguir tudo sem ajuda externa. Se falhar com `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`, ver [Pegadinhas](#pegadinhas) abaixo.
-
-## Pegadinhas
+### Pegadinhas (standalone)
 
 | Sintoma | Causa real | Fix |
 |---|---|---|
-| `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` | `gosu` ignora `group_add` do compose; PID 1 fica sem GID 0 supplementary | Adicionar `usermod -aG root node` no `Dockerfile.dev`. Verificar com `docker exec paperclip-app cat /proc/1/status \| grep Groups` — deve mostrar `Groups: 0` |
-| `docker exec -u node` funciona mas a process tree do agente nao | Mesmo motivo — `-u node` aplica group_add, gosu nao | Mesmo fix acima |
-| Bind-mount no compose do projeto monta diretorio vazio no container | Daemon Docker (host) nao enxerga paths dentro do volume `paperclip-data` | Trocar por named volume. Para conteudo, usar imagem/configmap. |
-| Containers de projetos diferentes conflitam | Mesmos `container_name` ou portas | Sempre prefixar com `<slug>-` no `container_name`. Evitar publicar portas do host (`ports:`) — comunicar so pela network interna. |
-| Agente "procura API pra trigger setupCommand" em vez de executar | Faltou instrucao explicita; agente assume que ha mecanismo gerenciado | Issue/comment dizer "rodar direto via Bash; nao ha endpoint" |
-| Agente pega o fallback workspace `~/.paperclip/instances/default/workspaces/<agentId>` em vez do cwd do projeto | Heartbeat foi `on_demand` sem issue, ou issue sem `projectId/projectWorkspaceId` | Garantir que a issue tem `projectId` setado e o agente foi acordado por `assignment` |
-| `setupCommand`/`cleanupCommand` estao no DB mas nao executam automaticamente | Sao executados manualmente pelo agente OU via UI; nao ha auto-trigger no heartbeat | Documentar no prompt do agente que ele precisa rodar antes/depois |
+| `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` | `gosu` ignora `group_add` do compose; PID 1 fica sem GID 0 supplementary | Adicionar `usermod -aG root node` no `Dockerfile.dev`. Verificar com `docker exec paperclip-app cat /proc/1/status \| grep Groups` |
+| Bind-mount no compose monta diretório vazio | Daemon Docker (host) não enxerga paths dentro do volume `paperclip-data` | Trocar por named volume |
+| Agente "procura API pra trigger setupCommand" em vez de executar | Agente assume que há mecanismo gerenciado | Issue/comment dizer "rodar direto via Bash" |
+| Agente pega o fallback workspace `~/.paperclip/instances/default/workspaces/<agentId>` | Heartbeat foi `on_demand` sem issue, ou issue sem `projectId/projectWorkspaceId` | Garantir `projectId` setado e wake-up por `assignment` |
 
-## Checklist final
+---
 
-- [ ] `docker exec paperclip-app cat /proc/1/status \| grep Groups` retorna `Groups: 0`
-- [ ] `docker exec -u node paperclip-app docker version` retorna Client e Server
-- [ ] `docker network inspect paperclip-projects-net` mostra paperclip-app conectado
-- [ ] `POST /api/companies/<id>/projects` retorna 201 com `primaryWorkspace.cwd` correto
-- [ ] Agente atribuido roda heartbeat com `cwd: /paperclip/projects/<slug>` (visivel no log)
-- [ ] `docker ps` mostra os containers da stack do projeto na `paperclip-projects-net`
-- [ ] `cleanupCommand` derruba tudo limpo
+## Arquivos relevantes no repo
 
-## Arquivos relevantes no repo Paperclip
-
-- [Dockerfile.dev](../../../Dockerfile.dev) — derivacao com docker CLI + node no grupo root
-- [docker-compose.standalone.yml](../../../docker-compose.standalone.yml) — socket mount + network externa
-- [doc/spec/agents-runtime.md](../../../doc/spec/agents-runtime.md) — modelo de heartbeat e cwd
-- [docs/api/goals-and-projects.md](../../../docs/api/goals-and-projects.md) — schema do Project Workspace
-- [packages/db/src/schema/project_workspaces.ts](../../../packages/db/src/schema/project_workspaces.ts) — campos `setupCommand`/`cleanupCommand`
+- `Dockerfile` (upstream) — base do paperclip-app
+- `Dockerfile.dev` — derivação standalone com Docker CLI + node no grupo root (modo standalone só)
+- `docker-compose.standalone.yml` — socket mount + network externa (modo standalone)
+- `k8s/base/paperclip/paperclip-app.yaml` — manifest prod (DooD ativado pelos PRs #9 e #10)
+- `scripts/projects/setupProjectStack.sh` / `cleanupProjectStack.sh` — helpers compartilhados pelos dois modos
+- `docs/ops/project-conventions.md` — contrato do `docker-compose.dev.yml` do cliente
+- `paperclip-plans/00-decisions.md` (fora do repo) — D-3 (sem internal), D-4 (mem_limit), D-12 (DooD)
