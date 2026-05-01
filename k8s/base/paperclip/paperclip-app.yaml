@@ -175,6 +175,19 @@ spec:
             # nó com docker engine instalado.
             - name: docker-socket
               mountPath: /var/run/docker.sock
+            # CLI do Docker e plugin compose vindos do host. Imagem upstream
+            # do paperclip nao traz docker-cli; em vez de fazer apt install no
+            # boot ou manter overlay-image, mount os binarios do host:
+            # - /usr/bin/docker depende so de libc.so.6 + loader (presente em
+            #   qualquer Linux glibc moderno; container e debian trixie-slim).
+            # - cli-plugins/docker-compose e docker-buildx sao binarios Go
+            #   estaticos (zero deps externas).
+            - name: docker-cli
+              mountPath: /usr/local/bin/docker
+              readOnly: true
+            - name: docker-cli-plugins
+              mountPath: /usr/local/libexec/docker/cli-plugins
+              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -185,3 +198,11 @@ spec:
           hostPath:
             path: /var/run/docker.sock
             type: Socket
+        - name: docker-cli
+          hostPath:
+            path: /usr/bin/docker
+            type: File
+        - name: docker-cli-plugins
+          hostPath:
+            path: /usr/libexec/docker/cli-plugins
+            type: Directory
