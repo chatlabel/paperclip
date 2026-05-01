@@ -82,6 +82,21 @@ spec:
           # ou via curl no manifests endpoint, abrir PR substituindo aqui. ArgoCD aplica.
           image: ghcr.io/paperclipai/paperclip@sha256:2862f13cb20c3e96c27d8dcad366b7aecd8670296a0e939262bd16688d8584e8
           imagePullPolicy: IfNotPresent
+          # DooD wrapper: garante que o user `node` (uid 1000) seja membro do
+          # group `docker` (GID 988 no host k3s-paperclip-01) ANTES do
+          # docker-entrypoint.sh exec gosu node — gosu reseta supplementary
+          # groups via initgroups(), entao supplementalGroups do podSpec sozinho
+          # nao alcanca o processo final. Solucao: criar/atualizar /etc/group
+          # do container no boot.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              if ! getent group docker >/dev/null; then
+                groupadd -g 988 docker
+              fi
+              usermod -aG docker node
+              exec docker-entrypoint.sh node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
           ports:
             - name: http
               containerPort: 3100
@@ -154,9 +169,19 @@ spec:
               mountPath: /paperclip
             - name: shared-bin
               mountPath: /shared
+            # Socket Docker do nó dedicado (DooD). Permite ao agente subir
+            # stacks via `docker compose` no host. Pod já está pinado em
+            # `k3s-paperclip-01` por nodeSelector + taint, e esse é o unico
+            # nó com docker engine instalado.
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
       volumes:
         - name: home
           persistentVolumeClaim:
             claimName: paperclip-home
         - name: shared-bin
           emptyDir: {}
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
