@@ -1,0 +1,167 @@
+---
+# ConfigMap dos helpers de stack por task (setup/cleanup), montado em
+# /app/scripts/projects no pod paperclip.
+#
+# IMPORTANTE: este ConfigMap é **espelho** dos arquivos em
+#   scripts/projects/setupProjectStack.sh
+#   scripts/projects/cleanupProjectStack.sh
+# do mesmo repo. Quando mudar um, atualize o outro no mesmo PR.
+# (Não usamos kustomize.configMapGenerator com `files: ../../../scripts/...`
+# porque kustomize default `LoadRestrictionsRootOnly` proibe sair do dir.
+# Habilitar `LoadRestrictionsNone` no ArgoCD Application é alternativa.)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: project-helpers
+  labels:
+    app: paperclip
+data:
+  setupProjectStack.sh: |
+    #!/usr/bin/env bash
+    # setupProjectStack.sh — sobe (idempotente) a stack auxiliar de um projeto
+    # para uma task específica usando docker compose, isolada por compose project
+    # name `<slug>-<task-id>` e marcada com label `paperclip.task=<task-id>`.
+    #
+    # Uso:
+    #   setupProjectStack.sh <slug> <task-id> <repo-path>
+    #
+    # Pré-requisitos:
+    #   - Pod paperclip com /var/run/docker.sock montado (DooD — ver D-12).
+    #   - Repo do cliente clonado em <repo-path> contendo docker-compose.dev.yml
+    #     conforme docs/ops/project-conventions.md.
+    #
+    # Idempotência:
+    #   - Se a stack já está up com mesmas labels, comando vira no-op.
+    #   - Retorna 0 mesmo em "no-op". Erros reais (compose-file inválido, etc.)
+    #     retornam ≠ 0.
+    #
+    # Exit codes:
+    #   0  ok (subiu nova ou já estava up)
+    #   2  argumentos inválidos
+    #   3  repo-path inexistente ou sem docker-compose.dev.yml
+    #   4  docker compose falhou (compose-file, recursos, etc.)
+
+    set -euo pipefail
+
+    usage() {
+      cat >&2 <<EOF
+    usage: $(basename "$0") <slug> <task-id> <repo-path>
+
+      slug       identificador estável do projeto (ex.: demo-task-runner)
+      task-id    identificador da task corrente (ex.: T123)
+      repo-path  caminho absoluto do repo cliente (deve ter docker-compose.dev.yml)
+
+    env opcional:
+      COMPOSE_FILE    nome do compose-file (default: docker-compose.dev.yml)
+      COMPOSE_TIMEOUT segundos pra --wait (default: 180)
+    EOF
+      exit 2
+    }
+
+    [ "$#" -eq 3 ] || usage
+    slug="$1"
+    task_id="$2"
+    repo_path="$3"
+
+    [ -d "$repo_path" ] || {
+      echo "ERROR: repo-path não existe: $repo_path" >&2
+      exit 3
+    }
+
+    compose_file="${COMPOSE_FILE:-docker-compose.dev.yml}"
+    [ -f "$repo_path/$compose_file" ] || {
+      echo "ERROR: $repo_path/$compose_file não encontrado" >&2
+      exit 3
+    }
+
+    project_name="${slug}-${task_id}"
+    timeout="${COMPOSE_TIMEOUT:-180}"
+
+    echo "[setupProjectStack] project=${project_name} cwd=${repo_path}"
+
+    cd "$repo_path"
+
+    if ! docker compose \
+        -p "$project_name" \
+        -f "$compose_file" \
+        up -d --wait --wait-timeout "$timeout" --remove-orphans; then
+      echo "ERROR: docker compose up falhou para project=${project_name}" >&2
+      exit 4
+    fi
+
+    echo "[setupProjectStack] containers up:"
+    docker ps --filter "label=com.docker.compose.project=${project_name}" \
+      --format "  - {{.Names}} ({{.Image}}, {{.Status}})"
+
+    echo "[setupProjectStack] OK"
+  cleanupProjectStack.sh: |
+    #!/usr/bin/env bash
+    # cleanupProjectStack.sh — derruba a stack de uma task (idempotente).
+    #
+    # Uso:
+    #   cleanupProjectStack.sh <slug> <task-id> [repo-path]
+    #
+    # Comportamento:
+    #   - Tenta `docker compose -p <slug>-<task-id> down -v --remove-orphans`.
+    #   - Se repo-path não foi passado ou é inválido, recorre ao plano B:
+    #     remove containers / networks / volumes filtrando por
+    #     label `com.docker.compose.project=<slug>-<task-id>`.
+    #   - Retorna 0 mesmo se já estava limpo (nada pra remover).
+    #
+    # Exit codes:
+    #   0  ok
+    #   2  argumentos inválidos
+
+    set -euo pipefail
+
+    usage() {
+      cat >&2 <<EOF
+    usage: $(basename "$0") <slug> <task-id> [repo-path]
+
+      slug       identificador estável do projeto
+      task-id    identificador da task
+      repo-path  (opcional) caminho do repo. Se ausente, fallback por label.
+
+    env opcional:
+      COMPOSE_FILE  nome do compose-file (default: docker-compose.dev.yml)
+    EOF
+      exit 2
+    }
+
+    [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+    slug="$1"
+    task_id="$2"
+    repo_path="${3:-}"
+    project_name="${slug}-${task_id}"
+    compose_file="${COMPOSE_FILE:-docker-compose.dev.yml}"
+
+    echo "[cleanupProjectStack] project=${project_name}"
+
+    if [ -n "$repo_path" ] && [ -f "$repo_path/$compose_file" ]; then
+      cd "$repo_path"
+      docker compose -p "$project_name" -f "$compose_file" down -v --remove-orphans || {
+        echo "[cleanupProjectStack] compose down retornou erro; vou pro fallback" >&2
+      }
+    fi
+
+    filter="label=com.docker.compose.project=${project_name}"
+
+    containers=$(docker ps -a --filter "$filter" -q || true)
+    if [ -n "$containers" ]; then
+      echo "[cleanupProjectStack] removendo containers leftover: $(echo "$containers" | wc -l)"
+      docker rm -f $containers >/dev/null 2>&1 || true
+    fi
+
+    networks=$(docker network ls --filter "$filter" -q || true)
+    if [ -n "$networks" ]; then
+      echo "[cleanupProjectStack] removendo networks leftover: $(echo "$networks" | wc -l)"
+      docker network rm $networks >/dev/null 2>&1 || true
+    fi
+
+    volumes=$(docker volume ls --filter "$filter" -q || true)
+    if [ -n "$volumes" ]; then
+      echo "[cleanupProjectStack] removendo volumes leftover: $(echo "$volumes" | wc -l)"
+      docker volume rm $volumes >/dev/null 2>&1 || true
+    fi
+
+    echo "[cleanupProjectStack] OK"

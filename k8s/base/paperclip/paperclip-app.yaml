@@ -188,6 +188,12 @@ spec:
             - name: docker-cli-plugins
               mountPath: /usr/local/libexec/docker/cli-plugins
               readOnly: true
+            # Helpers de gerenciamento de stack por task (setup/cleanup).
+            # Conteudo vem do ConfigMap gerado por kustomize a partir de
+            # scripts/projects/. ReadOnly. Modo 0755 garante exec bit.
+            - name: project-helpers
+              mountPath: /app/scripts/projects
+              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -206,3 +212,7 @@ spec:
           hostPath:
             path: /usr/libexec/docker/cli-plugins
             type: Directory
+        - name: project-helpers
+          configMap:
+            name: project-helpers
+            defaultMode: 0755
